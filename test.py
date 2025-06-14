@@ -11,13 +11,12 @@ import simpleaudio as sa
 import threading
 from scipy.signal import freqz, firwin, iirpeak
 import scipy.io
-import io
+import sounddevice
 # Konfiguracja pydub dla FFmpeg
 # AudioSegment.converter = r"C:\\Users\\Damian\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-7.1.1-full_build\\bin\\ffmpeg.exe"
 # AudioSegment.ffprobe = r"C:\\Users\\Damian\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-7.1.1-full_build\\bin\\ffprobe.exe"
 
 # Globalna zmienna do odtwarzania
-play_obj = None
 
 
 class ChangeSpeedWindow(ctk.CTkToplevel):
@@ -58,10 +57,26 @@ class ReverseWindow(ctk.CTkToplevel):
         self.on_save = on_save
         self.params = initial_params
 
+        self.if_checked = ctk.BooleanVar(value=False)
+
+        self.label = ctk.CTkLabel(self, text="Odwrócenie sygnału")
+        self.label.pack(pady=20)
+
+        self.reverse_checkbox = ctk.CTkCheckBox(self, text="Odwróć sygnał", variable=self.if_checked, command=self.update_reverse).pack(pady=10)
+
+        self.ext_btn = ctk.CTkButton(self, text="Zapisz i wyjdź", command=self.save_and_exit).pack(pady=10)
 
         self.lift()
         self.focus_force()
         self.grab_set()
+    
+    def update_reverse(self):
+        self.params = True
+
+    def save_and_exit(self):
+        self.on_save(self.params)
+        self.destroy()
+        
 
 
 
@@ -79,6 +94,10 @@ class DistortionWindow(ctk.CTkToplevel):
         self.focus_force()
         self.grab_set()
 
+    def save_and_exit(self):
+        self.on_save(self.params)
+        self.destroy()
+
 
 
 class EchoWindow(ctk.CTkToplevel):
@@ -89,10 +108,54 @@ class EchoWindow(ctk.CTkToplevel):
         self.on_save = on_save
         self.params = initial_params
 
+        self.label_delay = ctk.CTkLabel(self, text="Opóźnienie echa: 1250 [ms]")
+        self.label_delay.pack(pady=10)
+
+        self.delay_slider = ctk.CTkSlider(self, from_=0, to=2500, number_of_steps=250,
+                                         command=self.update_echo_delay)
+        self.delay_slider.set(1250)
+        self.delay_slider.pack()
+
+
+
+        self.label_decay = ctk.CTkLabel(self, text="Współczynnik tłumienia: 0.5")
+        self.label_decay.pack(pady=10)
+        self.decay_slider = ctk.CTkSlider(self, from_=0, to=1, number_of_steps=100,
+                                         command=self.update_echo_decay)
+        
+        self.decay_slider.set(0.5)
+        self.decay_slider.pack()
+
+
+        self.label_iterations = ctk.CTkLabel(self, text="Liczba powtórzeń sygnału: 5")
+        self.label_iterations.pack(pady=10)
+        self.iterations_slider = ctk.CTkSlider(self, from_=0, to=10, number_of_steps=10,
+                                         command=self.update_echo_iterations)
+        
+        self.iterations_slider.set(0.5)
+        self.iterations_slider.pack()
+
+        self.ext_btn = ctk.CTkButton(self, text="Zapisz i wyjdź", command=self.save_and_exit).pack(pady=10)
 
         self.lift()
         self.focus_force()
         self.grab_set()
+
+    def update_echo_delay(self, delay):
+        self.params["echo_delay"] = delay
+        self.label_delay.configure(text=f"Opóźnienie echa: {delay:.0f} ms")
+
+    def update_echo_decay(self, decay):
+        self.params["echo_decay"] = round(decay, 2)
+        self.label_decay.configure(text=f"Współczynnik tłumienia: {decay:.2f}")
+
+    def update_echo_iterations(self, iterations):
+        self.params["echo_iterations"] = iterations
+        self.label_iterations.configure(text=f"Liczba powtórzeń sygnału: {iterations:.0f}")
+    
+    def save_and_exit(self):
+        self.on_save(self.params)
+        self.destroy()
 
 
 
@@ -104,16 +167,26 @@ class DelayWindow(ctk.CTkToplevel):
         self.on_save = on_save
         self.params = initial_params
 
-        self.delay_label = ctk.CTkLabel(self, text="Ustawienia opóźnienia").pack(pady=10)
-        self.delay_slider = ctk.CTkSlider(self, from_=1, to=1000, number_of_steps=1000,
-                                         command=self.update_freq)
-        self.delay_slider.set(self.params.get("cutoff_freq", 500.0))
+        self.label = ctk.CTkLabel(self, text="Ustawienia opóźnienia [ms]")
+        self.label.pack(pady=10)
+        self.delay_slider = ctk.CTkSlider(self, from_=0, to=5000, number_of_steps=500,
+                                         command=self.update_delay)
+        self.delay_slider.set(2500)
         self.delay_slider.pack()
 
+        self.ext_btn = ctk.CTkButton(self, text="Zapisz i wyjdź", command=self.save_and_exit).pack(pady=10)
 
         self.lift()
         self.focus_force()
         self.grab_set()
+    
+    def update_delay(self, value):
+        self.params = int(value)
+        self.label.configure(text=f"Opóźnienie: {self.params:.0f} ms")
+
+    def save_and_exit(self):
+        self.on_save(self.params)
+        self.destroy()
 
 
 
@@ -126,10 +199,18 @@ class GainWindow(ctk.CTkToplevel):
         self.params = initial_params
 
 
-        self.gain_label = ctk.CTkLabel(self, text="Ustawienia wzmocnienia").pack(pady=10)
+        self.label = ctk.CTkLabel(self, text="Wzmocnienie: 0.0 dB (1.000x)")
+        self.label.pack(pady=20)
 
-        self.gain_entry = ctk.CTkEntry(self, placeholder_text="Wprowadź wartość wzmocnienia")
-        self.gain_entry.pack(pady=20)
+        self.gain_slider = ctk.CTkSlider(
+            self,
+            from_=-18,
+            to=18,
+            number_of_steps=72,
+            command=self.gain_slider_changed
+        )
+        self.gain_slider.set(0)
+        self.gain_slider.pack(pady=10)
 
         self.ext_btn = ctk.CTkButton(self, text="Zapisz i wyjdź", command=self.save_and_exit).pack(pady=10)
 
@@ -137,22 +218,17 @@ class GainWindow(ctk.CTkToplevel):
         self.lift()
         self.focus_force()
         self.grab_set()
+        
 
-    def update_gain(self):
-        try: 
-            float(self.gain_entry.get())
-            if float(self.gain_entry.get()) > 5.0 or float(self.gain_entry.get()) < 0.0:
-                print("Zakres wzmocnienia wynosi 0.0 - 5.0")
-                return False
-            else:
-                self.params = float(self.gain_entry.get())
-                return True
-        except ValueError:
-            print("[ERR] Błędny typ danych")
-            return False
+    def gain_slider_changed(self, value):
+        self.gain_db = round(value, 2)
+        self.params = self.update_gain(self.gain_db)
+        self.label.configure(text=f"Wzmocnienie: {self.gain_db:.1f} dB ({self.params:.3f}x)")
+
+    def update_gain(self, gain):
+        return 10**(gain/20)
 
     def save_and_exit(self):
-        self.update_gain()
         self.on_save(self.params)
         self.destroy()
 
@@ -223,16 +299,10 @@ class FilterDesignerWindow(ctk.CTkToplevel):
         self.destroy()
 
 
-def start_audio(audio_segment):
-    global play_obj
-    if play_obj is not None and play_obj.is_playing():
-        return
-    play_obj = sa.play_buffer(
-        audio_segment.raw_data,
-        num_channels=audio_segment.channels,
-        bytes_per_sample=audio_segment.sample_width,
-        sample_rate=audio_segment.frame_rate)
-    play_obj.wait_done()
+def start_audio(audio_segment, rate):
+    print("playing")
+    sounddevice.play(audio_segment, samplerate=rate)
+    # sounddevice.wait()
 
 class AudioEditorApp(ctk.CTk):
     def __init__(self):
@@ -249,7 +319,7 @@ class AudioEditorApp(ctk.CTk):
     def init_audio_data(self):
         self.original_audio = None
         self.original_audio_path = ""
-        self.original_audio_samples = None
+        self.original_samples = None
         self.modified_audio_samples = None
 
         self.gain_val = {}
@@ -260,6 +330,7 @@ class AudioEditorApp(ctk.CTk):
         self.delay_val = {}
         self.noise_reduction_val = {}
         self.filter_params = {}
+        self.audio_thread = {}
 
         self.effect_vars = {
             "gain":ctk.BooleanVar(value=False),
@@ -283,54 +354,56 @@ class AudioEditorApp(ctk.CTk):
             ("▶ Odtwórz oryginalny", self.play_original_audio),
             ("▶ Odtwórz zmodyfikowany", self.play_modified_audio),
             ("|| Pauza", self.pause_audio),
-            ("Zamknij", self.destroy)
+            ("Zamknij", self.destroy),
+            ("Reset zmodyfikowanego sygnału", self.reset)
         ]
 
         for text, command in buttons:
             ctk.CTkButton(self, text=text, command=command).pack(pady=5)
 
     def load_file(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Pliki audio", "*.mp3 *.wav *.flac *.m4a")])
+        file_path = filedialog.askopenfilename(filetypes=[("Pliki audio", "*.wav")])
         if not file_path:
             return
 
-        self.sample_rate, self.original_samples = scipy.io.wavfile(str(file_path))
-        
-        ext = os.path.splitext(file_path)[-1].lower()
-        self.original_audio = AudioSegment.from_file(file_path, format=ext[1:])
-        self.original_audio_samples = np.array(self.original_audio.get_array_of_samples())
+        (self.sample_rate, self.original_samples) = scipy.io.wavfile.read(str(file_path))
+        self.original_samples = self.original_samples.astype(np.float32) / np.iinfo(np.int16).max # Do float32 
 
-        if self.original_audio.channels == 2:
-            self.original_audio_samples = self.original_audio_samples.reshape((-1, 2)).mean(axis=1)
+        if len(self.original_samples.shape) == 2:
+            self.original_samples = self.original_samples.mean(axis=1)
 
-        self.modified_audio_samples = self.original_audio_samples
-        self.max_val = np.max(np.abs(self.modified_audio_samples))
+        self.modified_audio_samples = self.original_samples
 
     def play_original_audio(self):
-        if self.original_audio:
-            threading.Thread(target=start_audio, args=(self.original_audio,)).start()
-
-    def pause_audio(self):
-        if play_obj and play_obj.is_playing():
-            play_obj.stop()
-
-    def save_file(self):
-        for sample in self.original_audio_samples:
-            print(sample)
-
-        self.original_audio = audio_segment = AudioSegment.from_raw(
-        io.BytesIO(self.original_audio_samples),
-        sample_width=2,
-        frame_rate=44100,
-        channels=1
-)
-        print(self.original_audio_samples)
-        print(self.original_audio_samples.dtype)
-        print(self.original_audio_samples.size)
+        if self.original_samples is not None:
+            self.audio_thread = threading.Thread(target=start_audio, args=(self.original_samples, self.sample_rate))
+            self.audio_thread.start()
 
     def play_modified_audio(self):
-        if self.modified_audio_segment is not None:
-            threading.Thread(target=start_audio, args=(self.modified_audio_segment,)).start()
+        if self.modified_audio_samples is not None:
+            self.audio_thread = threading.Thread(target=start_audio, args=(self.modified_audio_samples, self.sample_rate))
+            self.audio_thread.start()
+
+    def pause_audio(self):
+        sounddevice.stop()
+        if self.audio_thread is not None and self.audio_thread.is_alive():
+            self.audio_thread.join()
+        print("Original size", self.original_samples.size)
+        print("Modified size", self.modified_audio_samples.size)
+
+    def reset(self):
+        self.modified_audio_samples = self.original_samples
+
+
+    def save_file(self):
+        if self.modified_audio_samples.dtype == np.float32 or self.modified_audio_samples.dtype == np.float64:
+            self.modified_audio_samples = np.clip(self.modified_audio_samples, -1.0, 1.0)  # zabezpieczenie
+            self.modified_audio_samples = (self.modified_audio_samples * 32767).astype(np.int16)
+        scipy.io.wavfile.write("output.wav", self.sample_rate, self.modified_audio_samples)
+        # print(self.original_samples)
+        
+
+    
 
     def apply_effects(self):
         
@@ -349,12 +422,6 @@ class AudioEditorApp(ctk.CTk):
                 cmd()
                 # print(effect + " applied")
 
-        self.modified_audio_segment = AudioSegment(
-            self.modified_audio_samples,
-            frame_rate=self.original_audio.frame_rate,
-            sample_width=2,
-            channels=1
-        )
         
         
 
@@ -392,10 +459,10 @@ class AudioEditorApp(ctk.CTk):
         if self.modified_audio_samples is None:
             return
 
-        sample_rate = self.original_audio.frame_rate
+        
         samples = self.modified_audio_samples.astype(np.float32) / (2 ** 15)
         N = len(samples)
-        T = 1.0 / sample_rate
+        T = 1.0 / self.sample_rate
 
         yf = np.fft.fft(samples)
         xf = np.fft.fftfreq(N, T)
@@ -413,6 +480,11 @@ class AudioEditorApp(ctk.CTk):
         plt.tight_layout()
         plt.show()
     
+
+
+
+
+
     def toggle_gain(self):
         if self.effect_vars["gain"].get() == 1:
             # Otwórz okno ustawień
@@ -492,7 +564,7 @@ class AudioEditorApp(ctk.CTk):
 
     def save_delay(self, params):
         self.delay_val = params
-        print("Zapisana wartość opóźnienia to ", self.delay_val + "[ms]")
+        print("Zapisana wartość opóźnienia to ", self.delay_val, "[ms]")
 
     def save_echo(self, params):
         self.echo_val = params
@@ -518,18 +590,49 @@ class AudioEditorApp(ctk.CTk):
         self.filter_params = params
         print("Zapisane parametry:", self.filter_params)
 
+
+
+
+
     def apply_gain(self):
-        # self.modified_audio_segment.apply_gain(self.gain_val)
-        # self.modified_audio_samples *= self.gain_val
-        # print(self.modified_audio_samples[:])
-        pass
+        print("gain applied")
+        self.modified_audio_samples = self.modified_audio_samples * self.gain_val
         
-
-
     def apply_echo(self):
+    #     delay_samples = int(self.delay_val["echo_delay"]/1000 * self.sample_rate)
+    #     output_length = len(self.modified_audio_samples) + delay_samples * self.delay_val["echo_iterations"]
+    #     output = np.zeros(output_length, dtype=np.float32)
+
+    # # Dodaj oryginalny sygnał
+    #     output[:len(self.modified_audio_samples)] += self.modified_audio_samples
+
+    # # Dodaj każde echo
+    #     for i in range(1, self.delay_val["echo_iterations"] + 1):
+    #         start = delay_samples * i
+    #         end = start + len(self.modified_audio_samples)
+    #         if end > output_length:
+    #             end = output_length
+    #         echo_signal = self.delay_val["echo_decay"]**i * self.modified_audio_samples[:end - start]
+    #         output[start:end] += echo_signal
+
+    # # Normalizacja (opcjonalna)
+    #     max_val = np.max(np.abs(output))
+    #     if max_val > 1.0:
+    #         output = output / max_val
+        delay_samples = int(self.echo_val["echo_delay"]/1000 * self.sample_rate)
+        echo_signal = np.concatenate((np.zeros(delay_samples), self.modified_audio_samples * self.echo_val["echo_decay"]))
+        if len(echo_signal) > len(self.modified_audio_samples):
+            self.modified_audio_samples = np.pad(self.modified_audio_samples, (0, len(echo_signal) - len(self.modified_audio_samples)))
+        else:
+            echo_signal = echo_signal[:len(self.modified_audio_samples)]
+
         print("echo applied")
+        
+        self.modified_audio_samples = self.modified_audio_samples + echo_signal
+        
     
     def apply_delay(self):
+        self.modified_audio_samples = np.concatenate((np.zeros(round(self.sample_rate/1000)*self.delay_val), self.modified_audio_samples))
         print("delay applied")
 
     def apply_noise_reduction(self):
@@ -542,6 +645,7 @@ class AudioEditorApp(ctk.CTk):
         print("change speed applied")
 
     def apply_reverse(self):
+        self.modified_audio_samples = self.modified_audio_samples[::-1]
         print("reverse applied")
 
     def apply_filter(self):
