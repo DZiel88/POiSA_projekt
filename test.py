@@ -1,50 +1,60 @@
 
-
 import customtkinter as ctk
 from tkinter import filedialog
-import os
 import matplotlib.pyplot as plt
-from pydub import AudioSegment
-import pydub
 import numpy as np
-import simpleaudio as sa
+import scipy.signal
 import threading
-from scipy.signal import freqz, firwin, iirpeak
+from scipy.signal import freqz, firwin, iirpeak, butter, lfilter
 import scipy.io
 import sounddevice
-# Konfiguracja pydub dla FFmpeg
-# AudioSegment.converter = r"C:\\Users\\Damian\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-7.1.1-full_build\\bin\\ffmpeg.exe"
-# AudioSegment.ffprobe = r"C:\\Users\\Damian\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-7.1.1-full_build\\bin\\ffprobe.exe"
-
-# Globalna zmienna do odtwarzania
 
 
 class ChangeSpeedWindow(ctk.CTkToplevel):
     def __init__(self, parent, initial_params, on_save):
         super().__init__(parent)
         self.title("Ustawienia: Zmiana prędkości sygnału")
-        self.geometry("200x200")
+        self.geometry("250x130")
         self.on_save = on_save
         self.params = initial_params
 
+        self.speed_label = ctk.CTkLabel(self, text="Współczynnik zmiany szybkości: 1.0")
+        self.speed_label.pack(pady=(10, 0))
+
+        self.gain_slider = ctk.CTkSlider(self, from_=0, to=4, number_of_steps=40,
+                                         command=self.update_speed)
+        
+        self.gain_slider.set(1)
+        self.gain_slider.pack()
+
+        self.ext_btn = ctk.CTkButton(self, text="Zapisz i wyjdź", command=self.save_and_exit).pack(pady=10)
 
         self.lift()
         self.focus_force()
         self.grab_set()
+    
+    def update_speed(self, factor):
+        self.params = factor
+        self.speed_label.configure(text=f"Współczynnik zmiany szybkości: {factor:.1f}")
+
+    def save_and_exit(self):
+        self.on_save(self.params)
+        self.destroy()
 
 
-class NoiseReductionWindow(ctk.CTkToplevel):
-    def __init__(self, parent, initial_params, on_save):
-        super().__init__(parent)
-        self.title("Ustawienia: Redukcja szumu sygnału")
-        self.geometry("200x200")
-        self.on_save = on_save
-        self.params = initial_params
+
+# class NoiseReductionWindow(ctk.CTkToplevel):
+#     def __init__(self, parent, initial_params, on_save):
+#         super().__init__(parent)
+#         self.title("Ustawienia: Redukcja szumu sygnału")
+#         self.geometry("200x200")
+#         self.on_save = on_save
+#         self.params = initial_params
 
 
-        self.lift()
-        self.focus_force()
-        self.grab_set()
+#         self.lift()
+#         self.focus_force()
+#         self.grab_set()
 
 
 
@@ -84,15 +94,67 @@ class DistortionWindow(ctk.CTkToplevel):
     def __init__(self, parent, initial_params, on_save):
         super().__init__(parent)
         self.title("Ustawienia: Zniekształcenie sygnału")
-        self.geometry("200x200")
+        self.geometry("300x230")
         self.on_save = on_save
         self.params = initial_params
+        self.params["dist_type"] = ""
+        self.params["dist_gain"] = 0 # w dB
+        self.params["dist_th"] = 0
 
+        self.distortion_type_label = ctk.CTkLabel(self, text="Typ zniekształcenia: Łagodne obcięcie")
+        self.distortion_type_label.pack(pady=(10, 0))
+
+        self.distortion_type = ctk.CTkOptionMenu(
+            self,
+            values=["Twarde obcięcie", "Łagodne obcięcie", "Zniekształcenie wykładnicze", "Zniekształcenie artan"],
+            command=self.update_distortion_type
+        )
+
+        self.distortion_type.set("Łagodne obcięcie")
+        self.distortion_type.pack()
+
+
+        self.distortion_gain_label = ctk.CTkLabel(self, text="Wzmocnienie zniekształcenia: 0.0 dB (1.000x)")
+        self.distortion_gain_label.pack(pady=(10, 0))
+
+        self.gain_slider = ctk.CTkSlider(self, from_=-18, to=18, number_of_steps=72,
+                                         command=self.update_distortion_gain)
         
+        self.gain_slider.set(0)
+        self.gain_slider.pack()
+
+        self.distortion_th_label = ctk.CTkLabel(self, text="Próg: 0.5")
+        self.distortion_th_label.pack(pady=(10, 0))
+
+        self.th_slider = ctk.CTkSlider(self, from_=0, to=1, number_of_steps=100,
+                                         command=self.update_distortion_threshold)
+        
+        self.th_slider.set(0.5)
+        self.th_slider.pack()
+
+        self.ext_btn = ctk.CTkButton(self, text="Zapisz i wyjdź", command=self.save_and_exit).pack(pady=10)
 
         self.lift()
         self.focus_force()
         self.grab_set()
+
+
+    def update_distortion_type(self, type):
+        self.params["dist_type"] = type
+        self.distortion_type_label.configure(text=f"Typ zniekształcenia {str(type)}")
+
+    def update_distortion_gain(self, gain):
+        self.gain_db = round(gain, 2)
+        self.params["dist_gain"] = self.update_gain(gain=gain)
+        self.distortion_gain_label.configure(text=f"Wzmocnienie: {self.gain_db:.1f} dB ({self.update_gain(gain=gain):.3f}x)")
+
+    def update_distortion_threshold(self, th):
+        
+        self.params["dist_th"] = th
+        self.distortion_th_label.configure(text=f"Próg: {th:.2f}")  
+        
+    def update_gain(self, gain):
+        return 10**(gain/20)
 
     def save_and_exit(self):
         self.on_save(self.params)
@@ -104,9 +166,12 @@ class EchoWindow(ctk.CTkToplevel):
     def __init__(self, parent, initial_params, on_save):
         super().__init__(parent)
         self.title("Ustawienia: Echo sygnału")
-        self.geometry("200x200")
+        self.geometry("250x300")
         self.on_save = on_save
         self.params = initial_params
+        self.params["echo_delay"] = 0
+        self.params["echo_decay"] = 0
+        self.params["echo_iterations"] = 5
 
         self.label_delay = ctk.CTkLabel(self, text="Opóźnienie echa: 1250 [ms]")
         self.label_delay.pack(pady=10)
@@ -132,7 +197,7 @@ class EchoWindow(ctk.CTkToplevel):
         self.iterations_slider = ctk.CTkSlider(self, from_=0, to=10, number_of_steps=10,
                                          command=self.update_echo_iterations)
         
-        self.iterations_slider.set(0.5)
+        self.iterations_slider.set(5)
         self.iterations_slider.pack()
 
         self.ext_btn = ctk.CTkButton(self, text="Zapisz i wyjdź", command=self.save_and_exit).pack(pady=10)
@@ -142,7 +207,7 @@ class EchoWindow(ctk.CTkToplevel):
         self.grab_set()
 
     def update_echo_delay(self, delay):
-        self.params["echo_delay"] = delay
+        self.params["echo_delay"] = int(delay)
         self.label_delay.configure(text=f"Opóźnienie echa: {delay:.0f} ms")
 
     def update_echo_decay(self, decay):
@@ -150,7 +215,7 @@ class EchoWindow(ctk.CTkToplevel):
         self.label_decay.configure(text=f"Współczynnik tłumienia: {decay:.2f}")
 
     def update_echo_iterations(self, iterations):
-        self.params["echo_iterations"] = iterations
+        self.params["echo_iterations"] = int(iterations)
         self.label_iterations.configure(text=f"Liczba powtórzeń sygnału: {iterations:.0f}")
     
     def save_and_exit(self):
@@ -233,34 +298,70 @@ class GainWindow(ctk.CTkToplevel):
         self.destroy()
 
 class FilterDesignerWindow(ctk.CTkToplevel):
-    def __init__(self, parent, initial_params, on_save, fs):
+    def __init__(self, parent, initial_params, on_save):
         super().__init__(parent)
         self.title("Ustawienia: Designer filtru")
-        self.geometry("400x300")
+        self.geometry("500x450")
         self.on_save = on_save
         self.params = initial_params.copy()
-        self.freq_sampling = fs
+        self.params["filter_type"] = "lowpass"
+        self.params["filter_order"] = 60
+        self.params["filter_method"] = "FIR"
+        self.params["cutoff_freq1"] = 500
+        self.params["cutoff_freq2"] = 20000
 
         # Typ filtra
-        self.filter_type_label = ctk.CTkLabel(self, text="Typ filtra:")
+        self.filter_type_label = ctk.CTkLabel(self, text="Typ filtra: ")
         self.filter_type_label.pack(pady=(10, 0))
 
         self.filter_type = ctk.CTkOptionMenu(
             self,
-            values=["lowpass", "highpass", "bandpass", "notch"],
+            values=["lowpass", "highpass", "bandpass"],
             command=self.update_filter_type
         )
-        self.filter_type.set(self.params.get("filter_type", "lowpass"))
+        self.filter_type.set("lowpass")
         self.filter_type.pack()
 
-        # Częstotliwość graniczna
-        self.freq_label = ctk.CTkLabel(self, text="Częstotliwość graniczna: 500 Hz")
-        self.freq_label.pack(pady=(20, 0))
+        self.filter_method_label = ctk.CTkLabel(self, text="Metoda filtru: ")
+        self.filter_method_label.pack(pady=(10, 0))
 
-        self.freq_slider = ctk.CTkSlider(self, from_=20, to=20000, number_of_steps=1000,
-                                         command=self.update_freq)
-        self.freq_slider.set(self.params.get("cutoff_freq", 500.0))
-        self.freq_slider.pack()
+        self.filter_method = ctk.CTkOptionMenu(
+            self,
+            values=["FIR", "Czebyszew", "Butterworth"],
+            command=self.update_filter_method
+        )
+        self.filter_method.set("FIR")
+        self.filter_method.pack()
+
+
+
+        # Częstotliwość graniczna
+        self.freqf1_label = ctk.CTkLabel(self, text="Częstotliwość graniczna f1: 500 Hz")
+        self.freqf1_label.pack(pady=(20, 0))
+
+        self.freqf1_slider = ctk.CTkSlider(self, from_=0, to=20000, number_of_steps=20000,
+                                         command=self.update_freqf1)
+        self.freqf1_slider.set(500.0)
+        self.freqf1_slider.pack()
+
+        self.freqf2_label = ctk.CTkLabel(self, text="(Dla typu bandpass) Częstotliwość graniczna f2: 20000 Hz")
+        self.freqf2_label.pack(pady=(20, 0))
+
+        self.freqf2_slider = ctk.CTkSlider(self, from_=0, to=20000, number_of_steps=20000,
+                                         command=self.update_freqf2)
+        self.freqf2_slider.set(20000)
+        self.freqf2_slider.pack()
+
+
+
+        self.order_label = ctk.CTkLabel(self, text="Rząd filtru: 60")
+        self.order_label.pack(pady=(20, 0))
+
+        self.order_slider = ctk.CTkSlider(self, from_=1, to=120, number_of_steps=119,
+                                         command=self.update_filter_order)
+        self.order_slider.set(60)
+        self.order_slider.pack()
+
 
         # Q-factor
         # self.q_label = ctk.CTkLabel(self, text="Q-factor: 1.0")
@@ -284,17 +385,27 @@ class FilterDesignerWindow(ctk.CTkToplevel):
     def update_filter_type(self, val):
         self.params["filter_type"] = val
 
-    def update_freq(self, val):
-        val = round(val)
-        self.freq_label.configure(text=f"Częstotliwość graniczna: {val} Hz")
-        self.params["cutoff_freq"] = val
+    def update_filter_order(self, val):
+        self.params["filter_order"] = int(val)
+        self.order_label.configure(text=f"Rząd filtru: {int(val):.0f}")
 
-    def update_q(self, val):
-        val = round(val, 1)
-        self.q_label.configure(text=f"Q-factor: {val}")
-        self.params["q_factor"] = val
+    def update_filter_method(self, val):
+        self.params["filter_method"] = val
+
+    def update_freqf1(self, val):
+        val = round(val)
+        self.freqf1_label.configure(text=f"Częstotliwość graniczna f1: {val} Hz")
+        self.params["cutoff_freq1"] = val
+
+    def update_freqf2(self, val):
+        val = round(val)
+        self.freqf2_label.configure(text=f"(Dla typu bandpass) Częstotliwość graniczna f2: {val} Hz")
+        self.params["cutoff_freq2"] = val
 
     def save_and_close(self):
+        if self.params["cutoff_freq1"] > self.params["cutoff_freq2"]:
+            print("Cutoff_1 musi być mniejsza od cutoff_2")
+            return
         self.on_save(self.params)
         self.destroy()
 
@@ -328,18 +439,18 @@ class AudioEditorApp(ctk.CTk):
         self.distortion_val = {}
         self.reverse_val = {}
         self.delay_val = {}
-        self.noise_reduction_val = {}
+        # self.noise_reduction_val = {}
         self.filter_params = {}
         self.audio_thread = {}
 
         self.effect_vars = {
+            "reverse":ctk.BooleanVar(value=False),
             "gain":ctk.BooleanVar(value=False),
             "echo":ctk.BooleanVar(value=False),
-            "reverse":ctk.BooleanVar(value=False),
             "change_speed":ctk.BooleanVar(value=False),
             "filter":ctk.BooleanVar(value=False),
             "distortion":ctk.BooleanVar(value=False),
-            "noise_reduction":ctk.BooleanVar(value=False),
+            # "noise_reduction":ctk.BooleanVar(value=False),
             "delay":ctk.BooleanVar(value=False),
         }
 
@@ -354,8 +465,10 @@ class AudioEditorApp(ctk.CTk):
             ("▶ Odtwórz oryginalny", self.play_original_audio),
             ("▶ Odtwórz zmodyfikowany", self.play_modified_audio),
             ("|| Pauza", self.pause_audio),
-            ("Zamknij", self.destroy),
-            ("Reset zmodyfikowanego sygnału", self.reset)
+            ("Reset zmodyfikowanego sygnału", self.reset),
+            ("FFT zmodulowanego sygnału", self.plot_fft),
+            ("Zamknij", self.destroy)
+            
         ]
 
         for text, command in buttons:
@@ -388,8 +501,6 @@ class AudioEditorApp(ctk.CTk):
         sounddevice.stop()
         if self.audio_thread is not None and self.audio_thread.is_alive():
             self.audio_thread.join()
-        print("Original size", self.original_samples.size)
-        print("Modified size", self.modified_audio_samples.size)
 
     def reset(self):
         self.modified_audio_samples = self.original_samples
@@ -408,13 +519,12 @@ class AudioEditorApp(ctk.CTk):
     def apply_effects(self):
         
         checks = [
+            ("Reverse", self.effect_vars["reverse"], self.apply_reverse),
             ("Gain", self.effect_vars["gain"], self.apply_gain),
             ("Echo", self.effect_vars["echo"], self.apply_echo),
-            ("Reverse", self.effect_vars["reverse"], self.apply_reverse),
             ("Change Speed", self.effect_vars["change_speed"], self.apply_change_speed),
             ("Filter", self.effect_vars["filter"], self.apply_filter),
             ("Distortion", self.effect_vars["distortion"], self.apply_distortion),
-            ("Noise reduction", self.effect_vars["noise_reduction"], self.apply_noise_reduction),
             ("Delay", self.effect_vars["delay"], self.apply_delay)
         ]
         for effect, var, cmd in checks:
@@ -440,14 +550,12 @@ class AudioEditorApp(ctk.CTk):
             ("Change Speed", self.effect_vars["change_speed"], self.toggle_change_speed),
             ("Filter", self.effect_vars["filter"], self.toggle_filter),
             ("Distortion", self.effect_vars["distortion"], self.toggle_distortion),
-            ("Noise reduction", self.effect_vars["noise_reduction"], self.toggle_noise_reduction),
             ("Delay", self.effect_vars["delay"], self.toggle_delay)
         ]
 
         for text, var, cmd in checks:
             ctk.CTkCheckBox(self.win, text=text, variable=var, command=cmd).pack(pady=5, anchor="w", padx=30)
 
-        ctk.CTkButton(self.win, text="FFT", command=self.plot_fft).pack(pady=5)
         ctk.CTkButton(self.win, text="Zapisz i zamknij", command=self.win.destroy).pack(pady=20)
 
          # Priorytetyzowanie okna
@@ -456,9 +564,9 @@ class AudioEditorApp(ctk.CTk):
         self.win.grab_set()
 
     def plot_fft(self):
+
         if self.modified_audio_samples is None:
             return
-
         
         samples = self.modified_audio_samples.astype(np.float32) / (2 ** 15)
         N = len(samples)
@@ -513,14 +621,14 @@ class AudioEditorApp(ctk.CTk):
             self.delay_val = {}
             print("Filter Designer wyłączony – parametry zresetowane")
 
-    def toggle_noise_reduction(self):
-        if self.effect_vars["noise_reduction"].get() == 1:
-            # Otwórz okno ustawień
-            NoiseReductionWindow(self, initial_params=self.noise_reduction_val, on_save=self.save_noise_reduction)
-        else:
-            # Resetuj parametry
-            self.delay_val = {}
-            print("Filter Designer wyłączony – parametry zresetowane")
+    # def toggle_noise_reduction(self):
+    #     if self.effect_vars["noise_reduction"].get() == 1:
+    #         # Otwórz okno ustawień
+    #         NoiseReductionWindow(self, initial_params=self.noise_reduction_val, on_save=self.save_noise_reduction)
+    #     else:
+    #         # Resetuj parametry
+    #         self.delay_val = {}
+    #         print("Filter Designer wyłączony – parametry zresetowane")
 
     def toggle_distortion(self):
         if self.effect_vars["distortion"].get() == 1:
@@ -552,7 +660,7 @@ class AudioEditorApp(ctk.CTk):
     def toggle_filter(self):
         if self.effect_vars["filter"].get() == 1:
             # Otwórz okno ustawień
-            FilterDesignerWindow(self, self.filter_params, self.save_filter_params, self.original_audio.frame_rate)
+            FilterDesignerWindow(self, self.filter_params, self.save_filter_params)
         else:
             # Resetuj parametry
             self.filter_params = {}
@@ -568,19 +676,19 @@ class AudioEditorApp(ctk.CTk):
 
     def save_echo(self, params):
         self.echo_val = params
-        print("Zapisana wartość echa", self.echo_val)
+        print("Zapisane parametry echa ", self.echo_val)
 
     def save_distortion(self, params):
         self.distortion_val = params
-        print("Zapisana wartość zniekształcenia", self.distortion_val)
+        print("Zapisana wartość zniekształcenia ", self.distortion_val)
 
-    def save_noise_reduction(self, params):
-        self.noise_reduction_val = params
-        print("Zapisana wartość tłumienia", self.noise_reduction_val)
+    # def save_noise_reduction(self, params):
+    #     self.noise_reduction_val = params
+    #     print("Zapisana wartość tłumienia", self.noise_reduction_val)
 
     def save_change_speed(self, params):
         self.speed_coeff_val = params
-        print("Zapisana wartość tłumienia", self.noise_reduction_val)
+        print("Zapisana wartość współczynnika prędkości", self.speed_coeff_val)
 
     def save_reverse(self, params):
         self.reverse_val = params
@@ -599,49 +707,49 @@ class AudioEditorApp(ctk.CTk):
         self.modified_audio_samples = self.modified_audio_samples * self.gain_val
         
     def apply_echo(self):
-    #     delay_samples = int(self.delay_val["echo_delay"]/1000 * self.sample_rate)
-    #     output_length = len(self.modified_audio_samples) + delay_samples * self.delay_val["echo_iterations"]
-    #     output = np.zeros(output_length, dtype=np.float32)
-
-    # # Dodaj oryginalny sygnał
-    #     output[:len(self.modified_audio_samples)] += self.modified_audio_samples
-
-    # # Dodaj każde echo
-    #     for i in range(1, self.delay_val["echo_iterations"] + 1):
-    #         start = delay_samples * i
-    #         end = start + len(self.modified_audio_samples)
-    #         if end > output_length:
-    #             end = output_length
-    #         echo_signal = self.delay_val["echo_decay"]**i * self.modified_audio_samples[:end - start]
-    #         output[start:end] += echo_signal
-
-    # # Normalizacja (opcjonalna)
-    #     max_val = np.max(np.abs(output))
-    #     if max_val > 1.0:
-    #         output = output / max_val
         delay_samples = int(self.echo_val["echo_delay"]/1000 * self.sample_rate)
-        echo_signal = np.concatenate((np.zeros(delay_samples), self.modified_audio_samples * self.echo_val["echo_decay"]))
-        if len(echo_signal) > len(self.modified_audio_samples):
-            self.modified_audio_samples = np.pad(self.modified_audio_samples, (0, len(echo_signal) - len(self.modified_audio_samples)))
-        else:
-            echo_signal = echo_signal[:len(self.modified_audio_samples)]
+        output_length = int(len(self.modified_audio_samples) + delay_samples * self.echo_val["echo_iterations"])
+        output = np.zeros(output_length)
 
+    # Dodaj oryginalny sygnał
+        output[:len(self.modified_audio_samples)] += self.modified_audio_samples
+
+    # Dodaj każde echo
+        for i in range(1, self.echo_val["echo_iterations"] + 1):
+            start = delay_samples * i
+            end = start + len(self.modified_audio_samples)
+            if end > output_length:
+                end = output_length
+            echo_signal = self.echo_val["echo_decay"]**i * self.modified_audio_samples[:end - start]
+            output[start:end] += echo_signal
+        self.modified_audio_samples = output
         print("echo applied")
-        
-        self.modified_audio_samples = self.modified_audio_samples + echo_signal
         
     
     def apply_delay(self):
         self.modified_audio_samples = np.concatenate((np.zeros(round(self.sample_rate/1000)*self.delay_val), self.modified_audio_samples))
         print("delay applied")
 
-    def apply_noise_reduction(self):
-        print("noise reduction applied")
+    # def apply_noise_reduction(self):
+    #     print("noise reduction applied")
 
     def apply_distortion(self):
+        if self.distortion_val["dist_type"] == "Łagodne obcięcie":
+            self.modified_audio_samples = np.tanh(self.modified_audio_samples*self.distortion_val["dist_gain"])
+        elif self.distortion_val["dist_type"] == "Zniekształcenie wykładnicze":
+            self.modified_audio_samples = np.sign(self.modified_audio_samples) * (1 - np.exp(-np.abs(self.distortion_val["dist_gain"] * self.modified_audio_samples)))
+        elif self.distortion_val["dist_type"] == "Twarde obcięcie":
+            self.modified_audio_samples = np.clip(self.modified_audio_samples, -self.distortion_val["dist_th"], self.distortion_val["dist_th"])
+        else:
+            self.modified_audio_samples = (2 / np.pi) * np.arctan(self.distortion_val["dist_gain"] * self.modified_audio_samples)
+
+        self.modified_audio_samples /= np.max(np.abs(self.modified_audio_samples) + 1e-9)
+
         print("distortion applied")
 
     def apply_change_speed(self):
+        n_samples = int(len(self.modified_audio_samples) / self.speed_coeff_val)
+        self.modified_audio_samples = scipy.signal.resample(self.modified_audio_samples, n_samples)
         print("change speed applied")
 
     def apply_reverse(self):
@@ -649,8 +757,73 @@ class AudioEditorApp(ctk.CTk):
         print("reverse applied")
 
     def apply_filter(self):
+        if self.filter_params["filter_method"] == "Butterworth":
+            self.modified_audio_samples = self.apply_Butterworth_filter(
+                cutoff_hz1=self.filter_params["cutoff_freq1"],
+                cutoff_hz2=self.filter_params["cutoff_freq2"],
+                filter_type=self.filter_params["filter_type"],
+                order=self.filter_params["filter_order"]
+            )
+        elif self.filter_params["filter_method"] == "FIR":
+            self.modified_audio_samples = self.apply_fir_filter(
+                cutoff_hz1=self.filter_params["cutoff_freq1"],
+                cutoff_hz2=self.filter_params["cutoff_freq2"],
+                filter_type=self.filter_params["filter_type"],
+                order=self.filter_params["filter_order"]
+            )
+        elif self.filter_params["filter_method"] == "Czebyszew":
+            self.modified_audio_samples = self.apply_Czebyszew_filter(
+                cutoff_hz1=self.filter_params["cutoff_freq1"],
+                cutoff_hz2=self.filter_params["cutoff_freq2"],
+                filter_type=self.filter_params["filter_type"],
+                order=self.filter_params["filter_order"]
+            )
         print("filter applied")
+    
 
+    def apply_Butterworth_filter(self, cutoff_hz1, cutoff_hz2, filter_type="lowpass", order=4):
+        nyq = 0.5 * self.sample_rate
+        if filter_type in ("lowpass", "highpass"):
+            cutoff = cutoff_hz1 / nyq
+        elif filter_type == "bandpass":
+            cutoff = [cutoff_hz1 / nyq, cutoff_hz2 / nyq]
+        else:
+            raise ValueError("Invalid filter_type")
+
+        b, a = butter(order, cutoff, btype=filter_type)
+        filtered = lfilter(b, a, self.modified_audio_samples)
+        
+        return filtered
+
+    def apply_fir_filter(self, cutoff_hz1, cutoff_hz2, filter_type="lowpass", order=101):
+        nyq = 0.5 * self.sample_rate
+        if filter_type in ("lowpass", "highpass"):
+            cutoff = cutoff_hz1 / nyq
+        elif filter_type == "bandpass":
+            cutoff = [cutoff_hz1 / nyq, cutoff_hz2 / nyq]  # cutoff_hz = [low, high]
+        else:
+            raise ValueError("Invalid filter_type")
+
+        fir_coeff = firwin(order, cutoff, pass_zero=filter_type)
+        filtered = lfilter(fir_coeff, 1.0, self.modified_audio_samples)
+        return filtered
+    
+    def apply_Czebyszew_filter(self, cutoff_hz1, cutoff_hz2=None, filter_type="lowpass", order=4, rp=1):
+    
+        nyq = 0.5 * self.sample_rate
+
+        if filter_type in ("lowpass", "highpass"):
+            cutoff = cutoff_hz1 / nyq
+        elif filter_type == "bandpass":
+            if cutoff_hz2 is None:
+                raise ValueError("Bandpass/bandstop requires two cutoff frequencies.")
+            cutoff = [cutoff_hz1 / nyq, cutoff_hz2 / nyq]
+        else:
+            raise ValueError("Invalid filter_type")
+
+        b, a = scipy.signal.cheby1(order, rp, cutoff, btype=filter_type)
+        filtered = lfilter(b, a, self.modified_audio_samples)
+        return filtered
 
 if __name__ == "__main__":
     app = AudioEditorApp()
